@@ -61,13 +61,25 @@ def get_user_by_email(email):
 	response = requests.get(req_url, headers=headers)
 	response.encoding = 'utf-8' # Optional: requests infers this internally
 
-	user = response.json()['data'][0]
-
-	if response.status_code == 200 and user:		
+	if response.status_code == 200 and response.json()['count'] > 0:
+		user = response.json()['data'][0]
 		return user
 	else:
 		return None
 
+def get_planet(query):
+
+	req_url = f"https://{ASTRA_CLUSTER_ID}-{ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest/v2/keyspaces/awcrm/planet?where="
+	req_url = req_url + json.dumps(query)
+
+	response = requests.get(req_url, headers=headers)
+	response.encoding = 'utf-8' # Optional: requests infers this internally
+
+	if response.status_code == 200 and response.json()['count'] > 0:
+		planet = response.json()['data'][0]
+		return planet
+	else:
+		return None
 
 @app.route('/')
 def hello_world():
@@ -126,6 +138,7 @@ def register():
 	else:
 
 		req_url = f"https://{ASTRA_CLUSTER_ID}-{ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest/v2/keyspaces/awcrm/users"
+
 		data = {
 			"id": str(uuid.uuid1()),
 			"first_name": request.form['first_name'],
@@ -221,9 +234,111 @@ def update_user():
 @app.route('/planet_details/<string:planet_id>', methods=['GET'])
 def planet_details(planet_id:str):
 
-	# id = uuid.UUID(planet_id)
+	query = {
+		"planet_id": {
+			"$eq": [str(planet_id)]
+		}
+	}
+
+	planet = get_planet(query)
+
+	if planet:
+		return jsonify(planet)
+	else:
+		return jsonify(message='That planet does not exist'), 404
+
+@app.route('/add_planet', methods=['POST'])
+@jwt_required()    # Require login using JWT before doing this add_planet
+def add_planet():
+	planet_name = request.form['planet_name']
+
+	query = {
+		"planet_name": {
+			"$eq": [str(planet_name)]
+		}
+	}
+
+	planet = get_planet(query)
+
+	if planet:
+		return jsonify('There is already a planet by that name of ' + planet_name), 409
+	else:
+
+		req_url = f"https://{ASTRA_CLUSTER_ID}-{ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest/v2/keyspaces/awcrm/planet"	
+
+		data = {
+			"planet_id" : str(uuid.uuid1()),
+			"planet_name": planet_name,
+			"planet_type": request.form['planet_type'],
+			"home_star": request.form['home_star'],
+			"mass": float(request.form['mass']),
+			"radius": float(request.form['radius']),
+			"distance": float(request.form['distance'])
+		}
+		
+		try:
+			response = requests.post(req_url, headers=headers, json=data)
+			response.encoding = 'utf-8' # Optional: requests infers this internally
+			
+			# If the response was successful, no Exception will be raised
+			response.raise_for_status()
+			
+		except HTTPError as http_err:
+			return jsonify(message=f'HTTP error occurred: {http_err}')  # Python 3.6
+		except Exception as err:
+			return jsonify(message=f'Other error occurred: {err}')  # Python 3.6
+		else:
+			return jsonify(message='You have added a planet'), 201
+
+@app.route('/update_planet', methods=['PUT'])
+@jwt_required()  
+def update_planet():
 	
-	# planet = session.execute("SELECT * FROM planet WHERE planet_id = %(planet_id)s", {'planet_id':id}).one()
+	planet_id = request.form['planet_id']
+	
+	query = {
+		"planet_id": {
+			"$eq": [str(planet_id)]
+		}
+	}
+
+	planet = get_planet(query)
+
+	if planet == None:
+		return jsonify(message='That planet with planet id of ' + str(planet_id) + ' does not exist !'), 404
+	else:
+
+		req_url = f"https://{ASTRA_CLUSTER_ID}-{ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest/v2/keyspaces/awcrm/planet/"	
+		req_url = req_url + str(planet_id)
+
+		print(req_url)
+
+		data = {
+			"planet_name": request.form['planet_name'],
+			"planet_type": request.form['planet_type'],
+			"home_star": request.form['home_star'],
+			"mass": float(request.form['mass']),
+			"radius": float(request.form['radius']),
+			"distance": float(request.form['distance'])
+		}
+
+		try:
+			response = requests.put(req_url, headers=headers, json=data)
+			response.encoding = 'utf-8' # Optional: requests infers this internally
+			
+			# If the response was successful, no Exception will be raised
+			response.raise_for_status()
+			
+		except HTTPError as http_err:
+			return jsonify(message=f'HTTP error occurred: {http_err}')  # Python 3.6
+		except Exception as err:
+			return jsonify(message=f'Other error occurred: {err}')  # Python 3.6
+		else:
+			return jsonify(message='You have updated planet '+ request.form['planet_name'],), 202
+
+@app.route('/delete_planet/<string:planet_id>', methods=['DELETE'])
+@jwt_required()  
+def delete_planet(planet_id:str):
 
 	query = {
 		"planet_id": {
@@ -231,83 +346,28 @@ def planet_details(planet_id:str):
 		}
 	}
 
-	req_url = f"https://{ASTRA_CLUSTER_ID}-{ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest/v2/keyspaces/awcrm/planet?where="
-	req_url = req_url + json.dumps(query)
+	planet = get_planet(query)
 
-	response = requests.get(req_url, headers=headers)
-	response.encoding = 'utf-8' # Optional: requests infers this internally
-
-	planet = response.json()['data'][0]
-
-	if planet:
-		return jsonify(planet)
+	if planet == None:
+		return jsonify(message='That planet does not exist !'), 404
 	else:
-		return jsonify(message='That planet does not exist'), 404
 
-# @app.route('/add_planet', methods=['POST'])
-# @jwt_required()    # Require login using JWT before doing this add_planet
-# def add_planet():
-# 	planet_name = request.form['planet_name']
+		req_url = f"https://{ASTRA_CLUSTER_ID}-{ASTRA_DB_REGION}.apps.astra.datastax.com/api/rest/v2/keyspaces/awcrm/planet/"	
+		req_url = req_url + str(planet_id)
 
-# 	planet = session.execute("SELECT * FROM planet WHERE planet_name = %(planet_name)s", {'planet_name':planet_name}).one()
-
-# 	if planet:
-# 		return jsonify('There is already a planet by that name of ' + planet_name), 409
-# 	else:
-# 		planet_id = uuid.uuid1()
-# 		planet_type = request.form['planet_type']
-# 		home_star = request.form['home_star']
-# 		mass = float(request.form['mass'])
-# 		radius = float(request.form['radius'])
-# 		distance = float(request.form['distance'])
-
-# 		session.execute("INSERT INTO planet (planet_id, planet_name, planet_type, home_star, mass, radius, distance) VALUES (%s,%s,%s,%s,%s,%s,%s)", [planet_id, planet_name, planet_type, home_star, mass, radius, distance])
-
-# 		return jsonify(message='You have added a planet'), 201
-
-# @app.route('/update_planet', methods=['PUT'])
-# @jwt_required()  
-# def update_planet():
-	
-# 	planet_id = str(request.form['planet_id'])
-	
-# 	id = uuid.UUID(planet_id)
-
-# 	planet = session.execute("SELECT * FROM planet WHERE planet_id = %(planet_id)s", {'planet_id':id}).one()
-	
-# 	print('i waz ere')
-
-# 	if planet:
-		
-# 		planet_name = request.form['planet_name']
-# 		planet_type = request.form['planet_type']
-# 		home_star = request.form['home_star']
-# 		mass = float(request.form['mass'])
-# 		radius = float(request.form['radius'])
-# 		distance = float(request.form['distance'])
-
-# 		prepared = session.prepare('UPDATE planet SET planet_name = ?, planet_type = ?, home_star = ?, mass = ?, radius = ?, distance = ? WHERE planet_id = ?')
-# 		session.execute(prepared, [planet_name, planet_type, home_star, mass, radius, distance, id])
-
-# 		return jsonify(message='You have updated planet '+ planet_name), 202
-# 	else:
-# 		return jsonify(message='That planet does not exist !'), 404
-
-# @app.route('/delete_planet/<string:planet_id>', methods=['DELETE'])
-# @jwt_required()  
-# def delete_planet(planet_id:str):
-
-# 	id = uuid.UUID(planet_id)
-
-# 	planet = session.execute("SELECT * FROM planet WHERE planet_id = %(planet_id)s", {'planet_id':id}).one()
-
-# 	if planet:	
-# 		prepared = session.prepare("DELETE FROM planet WHERE planet_id = ?")
-# 		session.execute(prepared, [id])
-
-# 		return jsonify(message='You have deleted planet ' + planet.planet_name), 202
-# 	else:
-# 		return jsonify(message='That planet does not exist !'), 404
+		try:
+			response = requests.delete(req_url, headers=headers)
+			response.encoding = 'utf-8' # Optional: requests infers this internally
+			
+			# If the response was successful, no Exception will be raised
+			response.raise_for_status()
+			
+		except HTTPError as http_err:
+			return jsonify(message=f'HTTP error occurred: {http_err}')  # Python 3.6
+		except Exception as err:
+			return jsonify(message=f'Other error occurred: {err}')  # Python 3.6
+		else:
+			return jsonify(message='You have deleted planet ' + planet['planet_name']), 202
 
 if __name__ == '__main__':
     app.run()
